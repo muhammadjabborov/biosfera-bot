@@ -8,3 +8,6 @@ storage = MemoryStorage()
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=settings.BOT_TOKEN)
 dp = Dispatcher(bot, storage=storage)
+
+# Channel ID for admin notifications
+CHANNEL_ID = getattr(settings, 'CHANNEL_ID', None)

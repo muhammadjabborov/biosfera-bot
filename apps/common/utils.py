@@ -1,31 +1,35 @@
+import os
+import json
 from django.conf import settings
-from datetime import datetime, timedelta
-import requests
-from apps.bot.config import bot
+from django.db import IntegrityError
 
-CHANNEL_ID = settings.CHANNEL_ID
-BOT_TOKEN = settings.BOT_TOKEN
+from apps.common.models import Region, District
 
 
-def generate_one_time_link():
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/createChatInviteLink"
+def load_regions():
+    with open(os.path.join(settings.BASE_DIR, 'apps/common/data/regions.json'), encoding="utf8",
+              errors='ignore') as json_file:
+        data = json.load(json_file)
+        for region in data:
+            try:
+                Region.objects.create(id=region['id'], name=region['name'])
+            except IntegrityError:
+                region_obj = Region.objects.get(id=region['id'])
+                region_obj.name = region['name']
+                region_obj.save()
+        return Region.objects.all()
 
-    data = {
-        "chat_id": CHANNEL_ID,
-        "member_limit": 1,
-        "expire_date": int((datetime.now() + timedelta(days=30)).timestamp())
-    }
 
-    response = requests.post(url, json=data)
-    invite_link = response.json().get('result').get('invite_link')
-    return invite_link
-
-
-async def send_broadcast(user_id, ad):
-    try:
-        make_url = f"https://reklama.icc-kimyo.uz/{ad.image.url}"
-        caption = f"{ad.caption}"
-
-        await bot.send_photo(user_id, photo=make_url, caption=caption, parse_mode="HTML")
-    except Exception as e:
-        print(f"Error sending broadcast to member {user_id}: {str(e)}")
+def load_districts():
+    with open(os.path.join(settings.BASE_DIR, 'apps/common/data/districts.json'), encoding="utf8",
+              errors='ignore') as json_file:
+        data = json.load(json_file)
+        for district in data:
+            try:
+                District.objects.create(id=district['id'], name=district['name'],
+                                        region_id=district['region_id'])
+            except IntegrityError:
+                district_obj = District.objects.get(id=district['id'])
+                district_obj.name = district['name']
+                district_obj.save()
+    return District.objects.all()

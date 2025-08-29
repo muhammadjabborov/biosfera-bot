@@ -14,8 +14,6 @@ from pathlib import Path
 
 import environ
 
-from core.jazzmin_conf import *  # noqa
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -182,3 +180,13 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
 
 BOT_TOKEN = env.str("BOT_TOKEN")
+CHAT_ID = env.str("CHAT_ID", default=None)
+
+JAZZMIN_SETTINGS = {
+    "site_title": "Biosfera Bot",
+    "site_header": "Biosfera Bot",
+    "site_brand": "Admin",
+    "show_sidebar": True,
+    "navigation_expanded": False,
+    # "custom_js": "inbox/js/notification.js",
+}

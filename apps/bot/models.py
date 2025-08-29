@@ -2,28 +2,45 @@ from apps.common.models import BaseModel
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+TOIFA_CHOICES = [
+    ('oliy', 'Oliy'),
+    ('1', '1-toifa'),
+    ('2', '2-toifa'),
+    ('mutaxassis', 'Mutaxassis'),
+    ('yoq', 'Yo\'q'),
+]
+
 
 class User(BaseModel):
-    full_name = models.CharField(_("full_name"), max_length=255, null=True, blank=True)
-    username = models.CharField(_("username"), max_length=255, null=True, blank=True)
-    telegram_id = models.BigIntegerField(_("telegram_id"), unique=True, db_index=True)
+    username = models.CharField(max_length=150, unique=True, blank=True, null=True)
+    telegram_id = models.BigIntegerField(max_length=20, unique=True, null=True, blank=True)
 
     def __str__(self):
-        return f"{self.full_name}:{self.username}:{self.telegram_id}"
+        return f"{self.username} ({self.telegram_id})"
 
     class Meta:
-        verbose_name = _("User")
-        verbose_name_plural = _("Users")
+        verbose_name = 'User Profile'
+        verbose_name_plural = 'User Profiles'
 
 
-class UserContact(BaseModel):
-    user = models.ForeignKey("bot.User", verbose_name=_("user"), on_delete=models.CASCADE, related_name="user_contacts")
-    phone_number = models.CharField(_("phone number"), max_length=32)
+class Teacher(BaseModel):
+    user = models.OneToOneField('User', on_delete=models.CASCADE, related_name='teacher')
+    full_name = models.CharField(max_length=255)
+    phone_number = models.CharField(max_length=15, blank=True, null=True)
+    region = models.ForeignKey('common.Region', on_delete=models.CASCADE)
+    district = models.ForeignKey('common.District', on_delete=models.CASCADE)
+    address = models.CharField(max_length=255, blank=True, null=True)
+    school_name = models.CharField(max_length=255)
+    toifa = models.CharField(max_length=20, choices=TOIFA_CHOICES, default='yoq')
+    is_confirmed = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.user_id}:{self.phone_number}"
+        return self.full_name
 
     class Meta:
-        verbose_name = _("User Contact")
-        verbose_name_plural = _("User Contacts")
+        verbose_name = 'Teacher Profile'
+        verbose_name_plural = 'Teacher Profiles'
 
+
+class MessageID(BaseModel):
+    message_id = models.BigIntegerField()
