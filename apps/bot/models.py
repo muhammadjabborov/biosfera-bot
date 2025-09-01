@@ -42,5 +42,62 @@ class Teacher(BaseModel):
         verbose_name_plural = 'Teacher Profiles'
 
 
+class ChannelID(BaseModel):
+    channel_name = models.CharField(max_length=255)
+    channel_id = models.CharField(max_length=255)
+
+    class Meta:
+        verbose_name = 'Channel ID'
+        verbose_name_plural = 'Channel IDs'
+
+
 class MessageID(BaseModel):
     message_id = models.BigIntegerField()
+
+
+class Point(BaseModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    points = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f'{self.user} - {self.points}'
+
+    class Meta:
+        verbose_name = 'Point'
+        verbose_name_plural = 'Points'
+
+
+class PointScore(BaseModel):
+    points = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f'{self.points}'
+
+    class Meta:
+        verbose_name = 'PointScore'
+        verbose_name_plural = 'PointScores'
+
+
+class LinkGot(BaseModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    is_get = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f'{self.user} - {self.is_get}'
+
+    class Meta:
+        verbose_name = 'LinkGot'
+        verbose_name_plural = 'LinkGots'
+
+
+class Referral(BaseModel):
+    referrer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='referrer')
+    referee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='referee')
+
+    def __str__(self):
+        return f'{self.referrer} - {self.referee}'
+
+    class Meta:
+        verbose_name = 'Referral'
+        verbose_name_plural = 'Referrals'
+        unique_together = ['referrer', 'referee']  # Prevent duplicate referrals

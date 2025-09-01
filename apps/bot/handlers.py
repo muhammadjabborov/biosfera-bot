@@ -5,7 +5,6 @@ from django.conf import settings
 from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from apps.bot.models import User, Teacher, TOIFA_CHOICES
 from apps.bot.keyboards import (
     get_main_keyboard, get_registered_user_keyboard, get_registration_keyboard, get_regions_keyboard,
@@ -44,10 +43,20 @@ class ProfileEditStates(StatesGroup):
 
 @dp.message_handler(commands=['start'])
 async def start_command(message: types.Message):
+    # Extract start parameter for referral
+    start_param = None
+    if message.get_args():
+        start_param = message.get_args()
+
     user, created = User.objects.get_or_create(
         telegram_id=message.from_user.id,
         defaults={'username': message.from_user.username}
     )
+
+    # Handle referral if start parameter exists
+    if start_param:
+        from apps.bot.utils import handle_referral
+        await handle_referral(start_param, user)
 
     teacher = (
         Teacher.objects
@@ -80,21 +89,164 @@ async def start_command(message: types.Message):
 @dp.message_handler(text="🔗 Referal")
 async def show_referral(message: types.Message):
     """Referal ma'lumotlarini ko'rsatish"""
+    from apps.bot.utils import get_user_referrals, generate_referral_link
+
+    # Use select_related to optimize the query
+    user = User.objects.select_related('teacher').get(telegram_id=message.from_user.id)
+    referral_count = get_user_referrals(user)
+    referral_link = await generate_referral_link(user)
+
     await message.answer(
-        "🔗 Referal tizimi\n\n"
-        "Hozircha referal tizimi ishlab chiqarilmoqda.\n"
-        "Tez orada siz ham do'stlaringizni taklif qilib ballar qo'shishingiz mumkin bo'ladi!"
+        f"🔗 Referal tizimi\n\n"
+        f"📊 Sizning referallaringiz: {referral_count}\n"
+        f"🔗 Sizning referal havolangiz:\n{referral_link}\n\n"
+        f"Do'stlaringizni taklif qiling va ballar qo'shing!"
     )
 
 
 @dp.message_handler(text="🏆 Mening ballarim")
 async def show_points(message: types.Message):
     """Foydalanuvchi ballarini ko'rsatish"""
-    await message.answer(
-        "🏆 Sizning ballaringiz\n\n"
-        "Hozircha ballar tizimi ishlab chiqarilmoqda.\n"
-        "Tez orada siz ham ballar to'plashingiz va sovrinlar qo'lga kiritishingiz mumkin bo'ladi!"
+    from apps.bot.utils import get_user_points, get_user_referrals
+    from apps.bot.models import PointScore, LinkGot
+    from apps.bot.keyboards import get_statistics_keyboard
+
+    # Optimize queries by fetching user and related data in one go
+    user = User.objects.select_related('teacher').get(telegram_id=message.from_user.id)
+
+    # Get basic user data
+    points = get_user_points(user)
+    referral_count = get_user_referrals(user)
+
+    # Get point threshold - use cached value from utils
+    from apps.bot.utils import _point_threshold_cache, _point_threshold_cache_time
+    import time
+
+    current_time = time.time()
+    if (_point_threshold_cache is None or
+            _point_threshold_cache_time is None or
+            current_time - _point_threshold_cache_time > 300):  # 5 minutes cache
+
+        point_score = PointScore.objects.only('points').first()
+        threshold = point_score.points if point_score else 5
+    else:
+        threshold = _point_threshold_cache
+
+    link_got = LinkGot.objects.filter(user=user, is_get=True).only('id').first()
+    link_status = "✅ Qo'lga kiritilgan" if link_got else "❌ Hali qo'lga kiritilmagan"
+
+    # Build basic statistics message
+    stats_message = f"📊 Statistika\n\n"
+    stats_message += f"Jami ball: {points}\n"
+    stats_message += f"Qaysi darajada statistikani ko'rmoqchisiz?"
+
+    await message.answer(stats_message, reply_markup=get_statistics_keyboard())
+
+
+@dp.callback_query_handler(lambda c: c.data == "stats_district")
+async def show_district_stats(callback_query: types.CallbackQuery):
+    """Tuman bo'yicha statistika"""
+    from apps.bot.utils import get_user_referrals_by_district, get_total_referrals_stats
+    from apps.bot.keyboards import get_statistics_keyboard
+
+    user = User.objects.select_related('teacher').get(telegram_id=callback_query.from_user.id)
+    user_district_stats = get_user_referrals_by_district(user)
+    total_stats = get_total_referrals_stats()
+
+    message = "🏘️ Tuman bo'yicha statistika\n\n"
+
+    if user_district_stats:
+        message += "Sizning tumanlaringiz:\n"
+        for stat in user_district_stats:
+            message += f"• {stat['referee__teacher__district__name']}: {stat['count']}\n"
+        message += "\n"
+
+    if total_stats['by_district']:
+        message += "Umumiy tumanlar:\n"
+        for stat in total_stats['by_district']:
+            message += f"• {stat['referee__teacher__district__name']}: {stat['count']}\n"
+
+    await callback_query.message.edit_text(message, reply_markup=get_statistics_keyboard())
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data == "stats_region")
+async def show_region_stats(callback_query: types.CallbackQuery):
+    """Viloyat bo'yicha statistika"""
+    from apps.bot.utils import get_user_referrals_by_region, get_total_referrals_stats
+    from apps.bot.keyboards import get_statistics_keyboard
+
+    user = User.objects.select_related('teacher').get(telegram_id=callback_query.from_user.id)
+    user_region_stats = get_user_referrals_by_region(user)
+    total_stats = get_total_referrals_stats()
+
+    message = "🏛️ Viloyat bo'yicha statistika\n\n"
+
+    if user_region_stats:
+        message += "Sizning viloyatlaringiz:\n"
+        for stat in user_region_stats:
+            message += f"• {stat['referee__teacher__region__name']}: {stat['count']}\n"
+        message += "\n"
+
+    if total_stats['by_region']:
+        message += "Umumiy viloyatlar:\n"
+        for stat in total_stats['by_region']:
+            message += f"• {stat['referee__teacher__region__name']}: {stat['count']}\n"
+
+    await callback_query.message.edit_text(message, reply_markup=get_statistics_keyboard())
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data == "stats_republic")
+async def show_republic_stats(callback_query: types.CallbackQuery):
+    """Respublika bo'yicha statistika"""
+    from apps.bot.utils import get_user_points, get_user_referrals, get_total_referrals_stats
+    from apps.bot.models import PointScore, LinkGot
+    from apps.bot.keyboards import get_statistics_keyboard
+
+    user = User.objects.select_related('teacher').get(telegram_id=callback_query.from_user.id)
+    points = get_user_points(user)
+    referral_count = get_user_referrals(user)
+    total_stats = get_total_referrals_stats()
+
+    # Get point threshold
+    from apps.bot.utils import _point_threshold_cache, _point_threshold_cache_time
+    import time
+
+    current_time = time.time()
+    if (_point_threshold_cache is None or
+            _point_threshold_cache_time is None or
+            current_time - _point_threshold_cache_time > 300):
+
+        point_score = PointScore.objects.only('points').first()
+        threshold = point_score.points if point_score else 5
+    else:
+        threshold = _point_threshold_cache
+
+    link_got = LinkGot.objects.filter(user=user, is_get=True).only('id').first()
+    link_status = "✅ Qo'lga kiritilgan" if link_got else "❌ Hali qo'lga kiritilmagan"
+
+    message = "🇺🇿 Respublika bo'yicha statistika\n\n"
+    message += f"Jami ball: {points}\n"
+    message += f"Sizning referallaringiz: {referral_count}\n"
+    message += f"Ballar chegarasi: {threshold}\n"
+    message += f"Taklif linklari: {link_status}\n\n"
+    message += f"Umumiy tasdiqlangan o'qituvchilar: {total_stats['total']}"
+
+    await callback_query.message.edit_text(message, reply_markup=get_statistics_keyboard())
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data == "back_to_main")
+async def back_to_main_menu(callback_query: types.CallbackQuery):
+    """Asosiy menyuga qaytish"""
+    await callback_query.message.edit_text("Asosiy menyuga qaytdingiz.")
+    await bot.send_message(
+        chat_id=callback_query.from_user.id,
+        text="Quyidagi imkoniyatlardan foydalanishingiz mumkin:",
+        reply_markup=get_registered_user_keyboard()
     )
+    await callback_query.answer()
 
 
 @dp.message_handler(text="👤 Profil")
@@ -277,10 +429,8 @@ async def edit_school_process(message: types.Message, state: FSMContext):
         await message.answer("❌ Maktab nomi juda qisqa. Iltimos, to'liq nomini kiriting:")
         return
 
-    user = User.objects.get(telegram_id=message.from_user.id)
-    teacher = user.teacher
-    teacher.school_name = message.text
-    teacher.save()
+    # Optimize by using select_related and update instead of get + save
+    Teacher.objects.filter(user__telegram_id=message.from_user.id).update(school_name=message.text)
 
     await state.finish()
     await message.answer(
@@ -305,10 +455,8 @@ async def edit_toifa_process(callback_query: types.CallbackQuery, state: FSMCont
     toifa = callback_query.data.split('_')[1]
     toifa_label = dict(TOIFA_CHOICES)[toifa]
 
-    user = User.objects.get(telegram_id=str(callback_query.from_user.id))
-    teacher = user.teacher
-    teacher.toifa = toifa
-    teacher.save()
+    # Optimize by using update instead of get + save
+    Teacher.objects.filter(user__telegram_id=str(callback_query.from_user.id)).update(toifa=toifa)
 
     await state.finish()
     await callback_query.message.edit_text(
@@ -324,10 +472,11 @@ async def edit_toifa_process(callback_query: types.CallbackQuery, state: FSMCont
 @dp.message_handler(text="📝 Ro'yxatdan o'tish")
 async def start_registration(message: types.Message):
     """Ro'yxatdan o'tishni boshlash"""
-    user = User.objects.get(telegram_id=message.from_user.id)
+    # Optimize by using select_related to fetch user with teacher in one query
+    user = User.objects.select_related('teacher').filter(telegram_id=message.from_user.id).first()
 
     # Check if user already has a teacher profile
-    if hasattr(user, 'teacher'):
+    if user and hasattr(user, 'teacher') and user.teacher:
         if user.teacher.is_confirmed:
             await message.answer(
                 "✅ Siz allaqachon tasdiqlangan o'qituvchisiz!\n"
@@ -591,7 +740,7 @@ async def complete_registration(message, user_id, state):
         data = await state.get_data()
         user = User.objects.only('id').get(telegram_id=str(user_id))
 
-        Teacher.objects.update_or_create(
+        teacher, created = Teacher.objects.update_or_create(
             user=user,
             defaults={
                 'full_name': data['full_name'],
@@ -603,6 +752,10 @@ async def complete_registration(message, user_id, state):
                 'is_confirmed': True,  # auto-confirm
             }
         )
+
+        # Award points to referrer if this teacher was referred
+        from apps.bot.utils import award_points_for_confirmed_teacher
+        await award_points_for_confirmed_teacher(teacher.user)
 
         await message.answer(
             "🎉 Tabriklaymiz! Siz muvaffaqiyatli ro'yxatdan o'tdingiz!\n\n"
@@ -625,8 +778,12 @@ async def complete_registration(message, user_id, state):
 async def accept_teacher(callback_query: types.CallbackQuery):
     teacher_id = int(callback_query.data.split('_')[1])
     try:
-        teacher = Teacher.objects.select_related('user').only('id', 'user__telegram_id').get(id=teacher_id)
+        teacher = Teacher.objects.select_related('user').get(id=teacher_id)
         Teacher.objects.filter(id=teacher_id).update(is_confirmed=True)  # single UPDATE
+
+        # Award points to referrer if this teacher was referred
+        from apps.bot.utils import award_points_for_confirmed_teacher
+        await award_points_for_confirmed_teacher(teacher.user)
 
         # Try editing the original admin message
         try:
@@ -655,7 +812,7 @@ async def accept_teacher(callback_query: types.CallbackQuery):
 async def reject_teacher(callback_query: types.CallbackQuery):
     teacher_id = int(callback_query.data.split('_')[1])
     try:
-        teacher = Teacher.objects.select_related('user').only('id', 'user__telegram_id').get(id=teacher_id)
+        teacher = Teacher.objects.select_related('user').get(id=teacher_id)
         user_tid = teacher.user.telegram_id  # cache before delete
         teacher.delete()
 

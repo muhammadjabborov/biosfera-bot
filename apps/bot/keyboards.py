@@ -18,6 +18,18 @@ def get_registered_user_keyboard():
     return keyboard
 
 
+def get_statistics_keyboard():
+    """Statistika darajalari klaviaturasi"""
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("🏘️ Tuman boyicha", callback_data="stats_district"),
+        InlineKeyboardButton("🏛️ Viloyat boyicha", callback_data="stats_region"),
+        InlineKeyboardButton("🇺🇿 Respublika boyicha", callback_data="stats_republic"),
+        InlineKeyboardButton("⬅️ Asosiy menyu", callback_data="back_to_main")
+    )
+    return keyboard
+
+
 def get_registration_keyboard():
     """Ro'yxatdan o'tish klaviaturasi"""
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
