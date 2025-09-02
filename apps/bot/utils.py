@@ -70,43 +70,12 @@ async def handle_referral(start_param, referee_user):
 
 async def check_and_send_invite_links(user, current_points):
     """
-    Check if user has reached point threshold and send invite links
+    Deprecated: Link distribution no longer depends on PointScore/points.
+    Links are issued to the referee upon confirmation (see award_points_for_confirmed_teacher).
+    This function is kept for backward compatibility and now does nothing.
     """
-    global _point_threshold_cache, _point_threshold_cache_time
-    import time
-
-    # Simple caching for point threshold (cache for 5 minutes)
-    current_time = time.time()
-    if (_point_threshold_cache is None or
-            _point_threshold_cache_time is None or
-            current_time - _point_threshold_cache_time > 300):  # 5 minutes cache
-
-        point_score = PointScore.objects.only('points').first()
-        if not point_score:
-            threshold = 5
-        else:
-            threshold = point_score.points
-
-        _point_threshold_cache = threshold
-        _point_threshold_cache_time = current_time
-    else:
-        threshold = _point_threshold_cache
-
-    if current_points >= threshold:
-        # Check if user already got links
-        link_got, created = LinkGot.objects.get_or_create(
-            user=user,
-            defaults={'is_get': False}
-        )
-
-        if not link_got.is_get:
-            await send_invite_links(user)
-            link_got.is_get = True
-            link_got.save()
-            logger.info(f"Invite links sent to user: {user.telegram_id}")
-        else:
-            # User already got links, but continue accumulating points
-            logger.info(f"User {user.telegram_id} already has invite links, continuing to accumulate points")
+    logger.debug("check_and_send_invite_links is deprecated and is a no-op.")
+    return
 
 
 async def send_invite_links(user):
@@ -119,7 +88,7 @@ async def send_invite_links(user):
             logger.warning("No channels configured for invite links")
             return
 
-        message = "🎉 Tabriklaymiz! Siz ballar to'plab, quyidagi kanallarga taklif linklarini qo'lga kiritdingiz:\n\n"
+        message = "🎉 Tabriklaymiz! Siz quyidagi kanallarga taklif linklarini qo'lga kiritdingiz:\n\n"
 
         bot = Bot(token=settings.BOT_TOKEN)
 
@@ -231,12 +200,16 @@ async def generate_referral_link(user):
 
 async def award_points_for_confirmed_teacher(teacher_user):
     """
-    Award points to referrer when a teacher gets confirmed
+    When a referred teacher gets confirmed:
+    - Increment ONE point for each referrer who invited this teacher
+    - Send invite links to the CONFIRMED referee (the one who started via referral)
+      exactly once
     """
     try:
         # Find referrals where this user was the referee - optimize with select_related
         referrals = Referral.objects.select_related('referrer__teacher').filter(referee=teacher_user)
 
+        # 1) Award points to referrers (do NOT send links to referrer)
         for referral in referrals:
             referrer = referral.referrer
 
@@ -252,28 +225,17 @@ async def award_points_for_confirmed_teacher(teacher_user):
                     point.save()
 
                 logger.info(f"Points awarded to referrer {referrer} for confirmed teacher {teacher_user}: {point}")
-
-                # Check if user already has invite links
-                link_got = LinkGot.objects.filter(user=referrer, is_get=True).first()
-
-                # Check if points reached threshold for invite links
-                await check_and_send_invite_links(referrer, point.points)
-
-                # If user already has invite links, send a notification about continuing to earn points
-                if link_got:
-                    try:
-                        bot = Bot(token=settings.BOT_TOKEN)
-                        await bot.send_message(
-                            chat_id=referrer.telegram_id,
-                            text=f"🎉 Tabriklaymiz! Siz yana 1 ball qo'shdingiz!\n\n"
-                                 f"📊 Jami ballaringiz: {point.points}\n"
-                                 f"🔗 Siz allaqachon taklif linklarini qo'lga kiritgansiz va ballar to'plashda davom etasiz!"
-                        )
-                        await bot.session.close()
-                    except Exception as e:
-                        logger.error(f"Error sending points notification to user {referrer.telegram_id}: {e}")
             else:
                 logger.warning(f"Referrer {referrer} is no longer a confirmed teacher, no points awarded")
+
+        # 2) Send invite links to the CONFIRMED referee if they started via referral
+        if referrals.exists():
+            link_got, created = LinkGot.objects.get_or_create(user=teacher_user, defaults={'is_get': False})
+            if not link_got.is_get:
+                await send_invite_links(teacher_user)
+                link_got.is_get = True
+                link_got.save()
+                logger.info(f"Invite links sent to confirmed referee: {teacher_user.telegram_id}")
 
     except Exception as e:
         logger.error(f"Error awarding points for confirmed teacher {teacher_user}: {e}")
