@@ -7,7 +7,6 @@ TOIFA_CHOICES = [
     ('1', '1-toifa'),
     ('2', '2-toifa'),
     ('mutaxassis', 'Mutaxassis'),
-    ('yoq', 'Yo\'q'),
 ]
 
 
@@ -31,7 +30,7 @@ class Teacher(BaseModel):
     district = models.ForeignKey('common.District', on_delete=models.CASCADE)
     address = models.CharField(max_length=255, blank=True, null=True)
     school_name = models.CharField(max_length=255)
-    toifa = models.CharField(max_length=20, choices=TOIFA_CHOICES, default='yoq')
+    toifa = models.CharField(max_length=20, choices=TOIFA_CHOICES, default='mutaxassis')
     is_confirmed = models.BooleanField(default=False)
 
     def __str__(self):
