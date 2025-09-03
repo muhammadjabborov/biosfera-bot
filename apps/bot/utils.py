@@ -94,10 +94,11 @@ async def send_invite_links(user):
 
         for channel in channels:
             try:
-                # Create invite link for the channel
+                # Create one-time invite link for the channel
                 invite_link = await bot.create_chat_invite_link(
                     chat_id=channel.channel_id,
-                    creates_join_request=False
+                    creates_join_request=False,
+                    member_limit=1  # One-time use link
                 )
                 message += f"📢 {channel.channel_name}:\n{invite_link.invite_link}\n\n"
             except Exception as e:
@@ -109,7 +110,10 @@ async def send_invite_links(user):
             chat_id=user.telegram_id,
             text=message
         )
-        await bot.session.close()
+        
+        # Close session properly
+        session = await bot.get_session()
+        await session.close()
 
     except Exception as e:
         logger.error(f"Error sending invite links to user {user.telegram_id}: {e}")
@@ -191,7 +195,11 @@ async def generate_referral_link(user):
     try:
         bot = Bot(token=settings.BOT_TOKEN)
         bot_info = await bot.get_me()
-        await bot.session.close()
+        
+        # Close session properly
+        session = await bot.get_session()
+        await session.close()
+        
         return f"https://t.me/{bot_info.username}?start={user.telegram_id}"
     except Exception as e:
         logger.error(f"Error generating referral link: {e}")
